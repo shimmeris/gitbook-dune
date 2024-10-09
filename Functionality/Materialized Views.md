@@ -1,0 +1,50 @@
+## Overview
+
+The **“Materialized View”** feature on Dune allows you to use an existing query’s results as table in another query. This functionality enables you to build your own simple data pipeline inside of Dune. This feature is especially useful when you have a query that takes a long time to run, or when you want to use the results of a query in another query. Instead of running the same query pattern over and over again, you can run it once and then use the results in other queries.
+
+You should think of using this feature any time you run into:
+
+1. You use the same query pattern across multiple queries
+2. Query timeouts (running longer than 30 mintes)
+3. Execution Error: Stage limits (exceeding stage limits in the planning stage, can happen when joining many tables)
+4. Execution Error: Memory limits (exceeding the memory limits, can happen when you use too many large tables like `solana.transactions` or `ethereum.traces`)
+
+This feature will help you to avoid these issues and save time and credits.
+
+## Create a materialized view
+
+Write a new query or go to an existing query. (We suggest creating via team context on a plan with sufficient credits)
+
+1. Make sure all columns are explicitly named (i.e. `SELECT count(*)` will not work)
+2. Save the query
+3. After saving a “materialize” button will appear below the run button.
+4. Click the materialize button, and set a refresh schedule and execution tier. Each refresh uses up credits based on cluster used.
+
+You can find the example query [here](https://dune.com/queries/3468697), and it can be queried with just:
+
+```sql
+SELECT
+*
+FROM dune.dune.result_staking_rate_daily_mat
+```
+
+## Query a materialized view
+
+Wait for a materialized view to finish creation first. It should be roughly similar to the time the query normally takes to execute - maybe a bit longer due to time it takes to write the new table.
+
+Query the materialized view via `dune.<username>.result_<given_name>`.
+
+If your username starts with a number, you’ll need to wrap the <username> in quotes i.e. `dune."21co".result_stablecoin_total_supply_on_ethereum`
+
+When you query a materialized view in another query, it does not rerun the materialized view (unlike [query views](https://docs.dune.com/query-engine/query-a-query.mdx)).
+
+**You can find your matviews either [in the data explorer](https://dune.com/queries?category=materialized_views), or in your library. The table name can always be found on the query if you click into the query and then open the matview settings.**
+
+## Things to keep in mind
+
+- A query result has a 200MB limit in the editor but a materialized view doesn’t have storage limits. Even though the results will look truncated in the editor.
+- This materialized view refresh schedule is DIFFERENT from the query scheduler. Results from running the query or the normal query scheduler will NOT update the materialized view.
+- Plans have total monthly storage limits (for premium plans, it’s 50GB, plus it’s 15GB, free is 1MB).
+- You can delete your materialized in the same dialouge where you created it.
+- If your team or account name starts with a number, you’ll need to wrap the `name` in quotes i.e. `dune."21co".result_stablecoin_total_supply_on_ethereum`
+- There currently is no way to nicely ensure sequential execution of materialized views. If you have a materialized view that depends on another materialized view, you’ll need to ensure that the upstream materialized view is updated first. This can be done by setting the refresh schedule to be more frequent than the downstream materialized view.

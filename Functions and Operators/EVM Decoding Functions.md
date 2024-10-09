@@ -1,0 +1,113 @@
+The EVM decoding functions enable users to decode raw EVM data (using the ABI) into human-readable tables within SQL queries, simplifying subsequent analysis. 🧑‍🏫 See the bebow example dashboard for an illustration.
+
+### decode\_evm\_event()
+
+**`decode_evm_event(abi: varchar, input: table [, topics: descriptor [, data: descriptor [, null_on_error: boolean]]])`** → table
+
+Decodes EVM events according to the provided ABI; returns each decoded parameter as a separate column as defined in the inputs’ name and type.
+
+#### Arguments
+
+- **`abi`** (required, type: varchar): This is the event specification in JSON format. The passed value must be constant at analysis time. Each input specified in the ABI results in one output column.
+- **`input`** (required, type: table): This is the table or query providing the topics and data for event decoding. The passed table or query must be preceded with the `TABLE` keyword.
+- **`topics`** (optional, type: descriptor, default: DESCRIPTOR(topic0, topic1, topic2, topic3)): Specifies which columns of the input contain the topics. Null topics are ignored by the function.
+- **`data`** (optional, type: descriptor, default: DESCRIPTOR(data)): Specifies which column of the input contains the data.
+- **`null_on_error`** (optional, type: boolean, default: true): Specifies the function behavior if a decoding error occurs. By default, the error is suppressed, and null values are produced.
+
+#### Function Output
+
+The function produces one output column for each parameter defined in the ABI inputs. Column names are based on the parameter names in the ABI, or default to `_arg0`, `_arg1`, etc., if not named in the ABI. Columns are ordered by the `indexed` property in the ABI, with `indexed` inputs first.
+
+#### Examples
+
+- [Basic Usage](https://dune.com/queries/3851471)
+
+```sql
+SELECT * 
+FROM TABLE (
+    decode_evm_event (
+      abi => '{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"buyer","type":"address"},{"indexed":true,"internalType":"address","name":"recipient","type":"address"},{"indexed":false,"internalType":"uint256[]","name":"tokensSoldIds","type":"uint256[]"},{"indexed":false,"internalType":"uint256[]","name":"tokensSoldAmounts","type":"uint256[]"},{"indexed":false,"internalType":"uint256[]","name":"currencyBoughtAmounts","type":"uint256[]"},{"indexed":false,"internalType":"address[]","name":"extraFeeRecipients","type":"address[]"},{"indexed":false,"internalType":"uint256[]","name":"extraFeeAmounts","type":"uint256[]"}],"name":"CurrencyPurchase","type":"event"}',
+      input => TABLE (
+        SELECT * 
+        FROM polygon.logs
+        WHERE topic0 = 0xb57378559821141c0e7ae964206b7523234d19e5783ade99b3d665eee495c997
+        LIMIT 20
+      )
+    )
+  )
+```
+
+- [Using Custom Topics and Data Columns](https://dune.com/queries/3861622)
+
+```sql
+SELECT * 
+FROM TABLE (
+    decode_evm_event (
+      abi => '{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"buyer","type":"address"},{"indexed":true,"internalType":"address","name":"recipient","type":"address"},{"indexed":false,"internalType":"uint256[]","name":"tokensSoldIds","type":"uint256[]"},{"indexed":false,"internalType":"uint256[]","name":"tokensSoldAmounts","type":"uint256[]"},{"indexed":false,"internalType":"uint256[]","name":"currencyBoughtAmounts","type":"uint256[]"},{"indexed":false,"internalType":"address[]","name":"extraFeeRecipients","type":"address[]"},{"indexed":false,"internalType":"uint256[]","name":"extraFeeAmounts","type":"uint256[]"}],"name":"CurrencyPurchase","type":"event"}',
+      input => TABLE (
+        SELECT topic0 as my_topic_0, topic1 as my_topic_1, topic2 as my_last_topic, data as my_data_column, * 
+        FROM polygon.logs
+        WHERE topic0 = 0xb57378559821141c0e7ae964206b7523234d19e5783ade99b3d665eee495c997
+        LIMIT 20
+      ),
+      topics => DESCRIPTOR(my_topic_0, my_topic_1, my_last_topic),
+      data => DESCRIPTOR(my_data_column),
+      null_on_error => false
+    )
+  )
+```
+
+### decode\_evm\_function\_call()
+
+**`decode_evm_function_call(abi: varchar, data: table [, input: descriptor [, output: descriptor [, null_on_error: boolean]]])`** → table
+
+Decodes EVM function calls according to the provided ABI; returns each decoded input and output parameter as separate columns as defined in the ABI.
+
+#### Arguments
+
+- **`abi`** (required, type: varchar): This is the function call specification in JSON format. The passed value must be constant at analysis time. The query engine uses this argument to determine the names and types of the result columns. Each input and output specified in the ABI results in one output column.
+- **`data`** (required, type: table): This is the table or query providing the input and output columns for function call decoding. The passed table or query must be preceded with the `TABLE` keyword.
+- **`input`** (optional, type: descriptor, default: DESCRIPTOR(input)): Specifies which columns of the data table contain the input varbinary for the function call. By default, the function will use the column named `input`.
+- **`output`** (optional, type: descriptor, default: DESCRIPTOR(output)): Specifies which columns of the data table contain the output varbinary for the function call. By default, the function will use the column named `output`.
+- **`null_on_error`** (optional, type: boolean, default: true): Specifies the function behavior if a decoding error occurs. By default, the error is suppressed, and null values are produced.
+
+#### Function Output
+
+The function produces one output column for each input and output of the function call as specified in the ABI. Column names are based on the input and output names in the ABI, or default to `_input0`, `_input1`, etc., and `_output0`, `_output1`, etc., if not named in the ABI. If two arguments (either input or output) have the same name in the ABI, the last declared argument will take precedence.
+
+#### Examples
+
+- [Basic Usage](https://dune.com/queries/4001654)
+
+```sql
+SELECT * 
+FROM TABLE (
+    decode_evm_function_call (
+      abi => '{"name":"getPlanet","type":"function","inputs":[{"name":"planetId","type":"uint256"}],"outputs":[{"name":"planetName","type":"string"},{"name":"planetType","type":"string"}]}',
+      data => TABLE (
+        SELECT * 
+        FROM polygon.traces
+        WHERE starts_with(input, 0x34efcb8e)
+        LIMIT 20
+      )
+    )
+  )
+```
+
+### Tips
+
+#### How to find the ABI
+
+- ⚠️ ABI inputted should be for only that event or function call, not for the entire contract.
+- For more info on what is an ABI, we recommend visiting [this resource](https://www.quicknode.com/guides/ethereum-development/smart-contracts/what-is-an-abi).
+- Generally the best way to find the ABI is by visiting a block explorer like Etherscan, input the contract address, and go to Contract —> Code —> Contract ABI and find the ABI for that specific event.
+
+#### How to find the `topic0` and filter for the event emitted
+
+- Generally, you can find the `topic0` by going to a block explorer. We recommend finding [an example transaction](https://basescan.org/tx/0x446c2c7c605cde83d6aba87921fceec40b111b97166ddbee513424eefae31ba5#eventlog). Then, go to the “Logs” tab, identify the event you want, and grab the `topic0` from there.
+- `topic0` is a keccak256 hash of the event’s name concatenated with the types of its indexed parameters, without any spaces.
+
+#### How to find the `input` and filter for the function called
+
+- Generally, you can find the `input` by going to a block explorer. We recommend finding [an example transaction](https://basescan.org/tx/0x446c2c7c605cde83d6aba87921fceec40b111b97166ddbee513424eefae31ba5). In the “Overview” tab, scroll down and click on “click to show more”. Then grab the MethodId in the Input Data filed.
+- The MethodId you identified is the first 4 bytes of the keccak256 hash of the function signature. So we can use the function `starts_with(input, <MethodID>)`to filter for the function call now.
